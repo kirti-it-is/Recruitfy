@@ -22,6 +22,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(response, { status: 400 });
     }
 
+    if (file.type && file.type !== 'application/pdf') {
+      return NextResponse.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Only PDF document uploads are supported.' } } satisfies ApiResponse, { status: 400 });
+    }
+
     const saved = await fileStorage.saveFile(file, type, { candidateId, roomId });
     const doc = await db.createDocument({
       id: saved.id,

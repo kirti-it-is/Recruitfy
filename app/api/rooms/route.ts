@@ -77,6 +77,9 @@ export async function POST(req: NextRequest) {
       };
 
       if (jdFile && jdFile.size > 0) {
+        if (jdFile.type && jdFile.type !== 'application/pdf') {
+          return NextResponse.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Job description uploads must be PDF files.' } } satisfies ApiResponse, { status: 400 });
+        }
         jdFileToProcess = jdFile;
       }
     } else {

@@ -26,6 +26,7 @@ import {
   X,
   Zap,
 } from 'lucide-react'
+import { ScoreRing } from '@/components/score-ring'
 
 type View = 'dashboard' | 'room' | 'candidate' | 'compare' | 'recommendation' | 'create' | 'login'
 type Stage = 'upload' | 'profile' | 'evidence' | 'agents' | 'debate' | 'final'
@@ -217,23 +218,6 @@ function Avatar({
   )
 }
 
-function Score({
-  value,
-  size = 'normal',
-}: {
-  value: number
-  size?: 'normal' | 'large'
-}) {
-  return (
-    <div
-      className={`score-ring ${size === 'large' ? 'score-ring-lg' : ''}`}
-      style={{ '--score': `${value * 3.6}deg` } as React.CSSProperties}
-    >
-      <span>{value}</span>
-    </div>
-  )
-}
-
 function Pill({
   children,
   tone = 'neutral',
@@ -294,7 +278,9 @@ function Sidebar({
         {items.map(([key, label, Icon]) => (
           <button
             key={key}
+            type="button"
             className={`nav-item ${view === key ? 'active' : ''}`}
+            aria-current={view === key ? 'page' : undefined}
             onClick={() => setView(key)}
           >
             <Icon size={17} strokeWidth={1.8} />
@@ -312,7 +298,7 @@ function Sidebar({
           </div>
           <ChevronRight size={15} />
         </div>
-        <button className="nav-item">
+        <button type="button" className="nav-item">
           <MoreHorizontal size={17} />
           Settings
         </button>
@@ -339,7 +325,7 @@ function Topbar({
 }) {
   return (
     <header className="topbar">
-      <button className="mobile-menu" onClick={onMenu}>
+      <button type="button" className="mobile-menu" onClick={onMenu} aria-label="Open navigation menu">
         <Menu size={20} />
       </button>
       <div className="breadcrumbs">
@@ -360,7 +346,7 @@ function Topbar({
           <span>Search anything</span>
           <kbd>⌘ K</kbd>
         </div>
-        <button className="icon-button">
+        <button type="button" className="icon-button" aria-label="Notifications">
           <Bell size={18} />
           <i />
         </button>
@@ -378,19 +364,21 @@ function Progress({
   setStage: (s: Stage) => void
 }) {
   const stages: [Stage, string, string][] = [
-    ['upload', '01', 'Upload'],
-    ['profile', '02', 'Profile'],
+    ['upload', '01', 'Candidate Profile'],
+    ['profile', '02', 'Resume & Skills'],
     ['evidence', '03', 'Evidence'],
-    ['agents', '04', 'Agents'],
-    ['debate', '05', 'Debate'],
-    ['final', '06', 'Decision'],
+    ['agents', '04', 'AI Assessment'],
+    ['debate', '05', 'Assessment Review'],
+    ['final', '06', 'Hiring Recommendation'],
   ]
   return (
     <div className="analysis-progress">
       {stages.map(([key, num, label], i) => (
         <button
           key={key}
+          type="button"
           className={stage === key ? 'current' : ''}
+          aria-current={stage === key ? 'step' : undefined}
           onClick={() => setStage(key)}
         >
           <span>{stage === key ? <Check size={13} /> : num}</span>
@@ -599,7 +587,7 @@ function CandidateCard({
           {candidate.status}
         </Pill>
         <span>{candidate.progress}</span>
-        <Score value={candidate.score || 85} />
+      <ScoreRing value={candidate.score || 85} />
       </div>
     </button>
   )
@@ -741,22 +729,26 @@ function Room({
         ))}
       </div>
       {adding && (
-        <div className="modal-backdrop" onClick={() => setAdding(false)}>
+        <div className="modal-backdrop" role="presentation">
+          <button type="button" className="modal-dismiss" aria-label="Close add candidate dialog" onClick={() => setAdding(false)} />
           <div
             className="modal-card panel"
-            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="add-candidate-title"
           >
             <form onSubmit={handleAddCandidate}>
               <div className="panel-title">
                 <div>
                   <div className="eyebrow">Hiring room · Candidate intake</div>
-                  <h2>Add candidate</h2>
+                  <h2 id="add-candidate-title">Add candidate</h2>
                   <p>Assign both documents to one candidate.</p>
                 </div>
                 <button
                   type="button"
                   className="icon-button"
                   onClick={() => setAdding(false)}
+                  aria-label="Close add candidate dialog"
                 >
                   <X size={18} />
                 </button>
@@ -995,20 +987,20 @@ function CandidateUploads({
 
   return (
     <div className="panel upload-review">
-      <div className="eyebrow">01 · Candidate documents</div>
-      <h2>Assign documents to {candidate.name}</h2>
+      <div className="eyebrow">01 · Candidate profile</div>
+      <h2>Resume Analysis & Interview Analysis</h2>
       <p className="large-copy">
         These files are analyzed against the shared Senior ML Engineer job
         description. No other candidate can inherit these documents.
       </p>
       <div className="upload-grid">
         <UploadField
-          label="Resume PDF"
+          label="Resume Analysis PDF"
           hint={resumeHint}
           selectedFileName={candidate.resumeFileName}
         />
         <UploadField
-          label="Interview transcript PDF"
+          label="Interview Analysis PDF"
           hint={transHint}
           selectedFileName={candidate.transcriptFileName}
         />
@@ -1276,7 +1268,7 @@ function Profile({
               <span>{fitScoreValue}</span>
             </div>
             <div>
-              <h2>Overall fit</h2>
+              <h2>Candidate Score</h2>
               <p>Evidence-weighted match</p>
               <Pill tone="strong">{candidate.status || 'Strong fit'}</Pill>
             </div>
@@ -1325,7 +1317,7 @@ function Profile({
         <div className="panel-title">
           <div>
             <div className="eyebrow">Requirement coverage</div>
-            <h2>Skill-by-skill match</h2>
+            <h2>Skills & Experience</h2>
             <p>Candidate strength against role requirements.</p>
           </div>
           <Pill tone="live">{totalClaims} sources</Pill>
@@ -1706,7 +1698,7 @@ function Debate({ candidateId, setStage }: { candidateId: string; setStage: (s: 
         <div>
           <div className="live-heading">
             <span className="pulse" />
-            03 · Debate arena
+            05 · AI assessment review
           </div>
           <h2>Stress-test the independent signal</h2>
           <p>
@@ -1814,11 +1806,11 @@ function FinalAssessment({
       <div className="panel final-verdict">
         <div className="verdict-top">
           <div>
-            <div className="eyebrow">04 · Final candidate assessment</div>
+            <div className="eyebrow">06 · AI Hiring Recommendation</div>
             <h2>{loading ? 'Generating final assessment…' : displayed?.verdictTitle || 'Final assessment unavailable'}</h2>
             <p>Evidence-weighted verdict after independent review and debate.</p>
           </div>
-          <Score value={displayed?.finalScore || candidate.score || 0} size="large" />
+            <ScoreRing value={displayed?.finalScore || candidate.score || 0} size="large" />
         </div>
         <div className="final-columns">
           <div>
@@ -2049,7 +2041,7 @@ function Recommendation({
           {topCandidate.role} · {room.location}
         </p>
         <div className="recommendation-score">
-          <Score value={topCandidate.score || 92} size="large" />
+          <ScoreRing value={topCandidate.score || 92} size="large" />
           <div>
             <span>Evidence-weighted fit</span>
             <strong>{topCandidate.status || 'Strong fit'}</strong>
@@ -2384,10 +2376,8 @@ export default function Home() {
 
   return (
     <div className="app-shell">
-      <div
-        className={`mobile-sidebar ${menu ? 'open' : ''}`}
-        onClick={() => setMenu(false)}
-      >
+      <div className={`mobile-sidebar ${menu ? 'open' : ''}`}>
+        {menu && <button type="button" className="mobile-dismiss" aria-label="Close navigation menu" onClick={() => setMenu(false)} />}
         <Sidebar
           view={view}
           setView={setView}

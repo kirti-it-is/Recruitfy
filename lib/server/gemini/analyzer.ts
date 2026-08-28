@@ -10,6 +10,7 @@ import {
   RecommendationAction,
   CompactEvaluationContext,
 } from '@/lib/types';
+import { calculateCandidateScore, calculateJobCandidateMatch, deriveHiringRecommendation } from '@/lib/scoring';
 
 export interface AnalyzeCandidateParams {
   candidateId: string;
@@ -188,18 +189,8 @@ Return ONLY a valid, parseable JSON object matching this schema:
   const parsed = await generateGeminiJson<GeminiRawAnalysisOutput>(prompt);
 
   // Normalize and validate parsed output
-  const overallFitScore = Math.max(0, Math.min(100, Math.round(Number(parsed.overallFitScore) || 85)));
+  const parsedOverallFitScore = Number(parsed.overallFitScore);
   const decisionConfidence = Math.max(0, Math.min(100, Math.round(Number(parsed.decisionConfidence) || 85)));
-  const fitStatus = parsed.fitStatus || (overallFitScore >= 90 ? 'Strong fit' : overallFitScore >= 80 ? 'Good fit' : 'Potential fit');
-
-  const roleAlignment: RoleAlignment = {
-    overallMatchScore: Number(parsed.roleAlignment?.overallMatchScore) || overallFitScore,
-    technicalSkillsScore: Number(parsed.roleAlignment?.technicalSkillsScore) || overallFitScore + 2,
-    experienceMatchScore: Number(parsed.roleAlignment?.experienceMatchScore) || overallFitScore - 3,
-    evidenceCoverageScore: Number(parsed.roleAlignment?.evidenceCoverageScore) || 90,
-    riskLevel: (parsed.roleAlignment?.riskLevel as RiskLevel) || 'Low',
-    riskNote: parsed.roleAlignment?.riskNote || 'Low · verified against source evidence',
-  };
 
   const skillScores: SkillMatchScore[] = Array.isArray(parsed.skillScores) && parsed.skillScores.length > 0
     ? parsed.skillScores.map((s) => ({
@@ -257,6 +248,21 @@ Return ONLY a valid, parseable JSON object matching this schema:
     supportedPercentage: parsed.coverageDistribution?.supportedPercentage || supportedPercentage,
   };
 
+  const experienceMatchScore = Math.max(0, Math.min(100, Number(parsed.roleAlignment?.experienceMatchScore) || calculateJobCandidateMatch(skillScores)));
+  const evidenceCoverageScore = Math.max(0, Math.min(100, Number(parsed.roleAlignment?.evidenceCoverageScore) || coverageDistribution.supportedPercentage));
+  const computedCandidateScore = calculateCandidateScore({ skillScores, evidenceCoverageScore, experienceMatchScore });
+  const overallFitScore = Math.max(0, Math.min(100, Math.round(Number.isFinite(parsedOverallFitScore) ? parsedOverallFitScore : computedCandidateScore || 85)));
+  const riskLevel = (parsed.roleAlignment?.riskLevel as RiskLevel) || 'Low';
+  const roleAlignment: RoleAlignment = {
+    overallMatchScore: Math.max(0, Math.min(100, Number(parsed.roleAlignment?.overallMatchScore) || computedCandidateScore || overallFitScore)),
+    technicalSkillsScore: Math.max(0, Math.min(100, Number(parsed.roleAlignment?.technicalSkillsScore) || calculateJobCandidateMatch(skillScores))),
+    experienceMatchScore,
+    evidenceCoverageScore,
+    riskLevel,
+    riskNote: parsed.roleAlignment?.riskNote || `${riskLevel} · verified against source evidence`,
+  };
+  const fitStatus = parsed.fitStatus || (overallFitScore >= 90 ? 'Strong fit' : overallFitScore >= 80 ? 'Good fit' : 'Potential fit');
+
   const strengths = Array.isArray(parsed.strengths) && parsed.strengths.length > 0
     ? parsed.strengths
     : ['Technical depth', 'Domain expertise'];
@@ -266,7 +272,9 @@ Return ONLY a valid, parseable JSON object matching this schema:
     : ['Standard onboarding verification'];
 
   const recommendation: RecommendationAction =
-    parsed.recommendation === 'reject' || parsed.recommendation === 'hold' ? parsed.recommendation : 'advance';
+    parsed.recommendation === 'advance' || parsed.recommendation === 'reject' || parsed.recommendation === 'hold'
+      ? parsed.recommendation
+      : deriveHiringRecommendation({ candidateScore: overallFitScore, evidenceCoverageScore, riskLevel });
 
   const evaluationContext = buildCompactEvaluationContext({
     candidateName: params.candidateName,

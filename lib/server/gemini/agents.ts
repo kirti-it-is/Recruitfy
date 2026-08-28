@@ -6,6 +6,7 @@ import {
   AgentRoleName,
   AgentToneColor,
   ConfidenceLevel,
+  CompactEvaluationContext,
   EvidencePoint,
 } from '@/lib/types';
 
@@ -73,13 +74,7 @@ export interface EvaluateCandidateAgentsParams {
   candidateName: string;
   candidateRole: string;
   roomId: string;
-  roomTitle: string;
-  roomBrief: string;
-  jobDescriptionText: string;
-  resumeText: string;
-  transcriptText: string;
-  resumeFileName?: string;
-  transcriptFileName?: string;
+  evaluationContext: CompactEvaluationContext;
   evidencePoints: EvidencePoint[];
   agentIds?: AgentId[];
 }
@@ -98,16 +93,14 @@ function formatEvidenceForPrompt(evidencePoints: EvidencePoint[]): string {
     return 'No prior evidence points are available. Base your evaluation only on the JD, resume, and transcript.';
   }
 
-  return evidencePoints
+  return evidencePoints.slice(0, 8)
     .map((ev) => {
       return [
         `- id: ${ev.id}`,
         `  claim: ${ev.claim}`,
         `  category: ${ev.category}`,
-        `  sourceType: ${ev.sourceType}`,
-        `  sourceDocumentName: ${ev.sourceDocumentName}`,
-        `  sourceLocation: ${ev.sourceLocation}`,
-        `  quoteSnippet: ${ev.quoteSnippet || ''}`,
+        `  source: ${ev.sourceLocation}`,
+        `  quote: ${(ev.quoteSnippet || '').replace(/\s+/g, ' ').slice(0, 240)}`,
         `  supportLevel: ${ev.supportLevel}`,
         `  confidence: ${ev.confidence}`,
       ].join('\n');
@@ -124,7 +117,7 @@ function normalizeConfidence(value: string | undefined): ConfidenceLevel {
 
 function buildAgentPrompt(agent: AgentPersona, params: EvaluateCandidateAgentsParams): string {
   return `
-You are ${agent.name}, HireMind AI's independent ${agent.role} evaluation agent.
+You are ${agent.name}, Recruitfy's independent ${agent.role} evaluation agent.
 ${agent.description}
 
 You must evaluate this candidate independently. You cannot see any other agent's scores, reasoning, strengths, concerns, or conclusions. Do not invent or speculate about other agents.
@@ -133,27 +126,17 @@ Your focus areas:
 ${agent.focusAreas.map((area) => `- ${area}`).join('\n')}
 
 ---
-### HIRING ROOM CONTEXT
-Role Title: ${params.roomTitle}
-Role Brief: ${params.roomBrief}
-
-### SHARED JOB DESCRIPTION:
-${params.jobDescriptionText || 'No Job Description text available.'}
-
----
-### CANDIDATE CONTEXT
-Candidate Name: ${params.candidateName}
-Target Role: ${params.candidateRole}
-
-### CANDIDATE RESUME (${params.resumeFileName || 'Resume.pdf'}):
-${params.resumeText || 'No Resume text available.'}
-
-### CANDIDATE INTERVIEW TRANSCRIPT (${params.transcriptFileName || 'Interview.pdf'}):
-${params.transcriptText || 'No Interview Transcript text available.'}
+### COMPACT CANDIDATE CONTEXT
+Role: ${params.evaluationContext.roleTitle}
+Role brief: ${params.evaluationContext.roleBrief}
+Candidate: ${params.evaluationContext.candidateName}, ${params.evaluationContext.candidateRole}
+Requirements: ${params.evaluationContext.requirements.join('; ')}
+Evidence summary:
+${params.evaluationContext.evidenceSummary}
 
 ---
 ### EXISTING EVIDENCE POINTS
-These evidence points were extracted from the JD, resume, and transcript. Use them as citations. You may only reference evidence IDs from this list.
+Use only these compact evidence points as citations. You may only reference IDs from this list.
 ${formatEvidenceForPrompt(params.evidencePoints)}
 
 ---
@@ -162,7 +145,7 @@ ${formatEvidenceForPrompt(params.evidencePoints)}
 2. Assign confidence as "High", "Medium", or "Low" based on how well the sources support your conclusion.
 3. List 2-4 concrete strengths and 1-3 concrete concerns from your lens.
 4. Cite referencedEvidenceIds using only IDs from the evidence list above. If none apply, return an empty array.
-5. Write concise reasoning (3-6 sentences) grounded in the JD, resume, transcript, and cited evidence.
+5. Write concise reasoning (2-4 sentences) grounded only in the compact context and cited evidence.
 6. Do not mention other agents (Atlas, Sage, Vector, Quill) or a panel consensus.
 
 Return ONLY a valid, parseable JSON object matching this schema:
@@ -232,6 +215,10 @@ export async function evaluateCandidateWithIndependentAgents(
     throw new Error('No matching independent agents were requested.');
   }
 
-  // Independent parallel calls: each prompt contains only JD, resume, transcript, and evidence.
-  return Promise.all(agents.map((agent) => evaluateWithSingleAgent(agent, params)));
+  // Sequential independent calls: every prompt receives the same compact context, never another agent's output.
+  const evaluations: AgentEvaluation[] = [];
+  for (const agent of agents) {
+    evaluations.push(await evaluateWithSingleAgent(agent, params));
+  }
+  return evaluations;
 }

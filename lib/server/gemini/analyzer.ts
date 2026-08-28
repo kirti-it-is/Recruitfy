@@ -8,6 +8,7 @@ import {
   SupportLevel,
   RiskLevel,
   RecommendationAction,
+  CompactEvaluationContext,
 } from '@/lib/types';
 
 export interface AnalyzeCandidateParams {
@@ -66,6 +67,33 @@ interface GeminiRawAnalysisOutput {
   concerns: string[];
 }
 
+function compactSourceText(value: string, limit = 12000): string {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  return normalized.length <= limit ? normalized : `${normalized.slice(0, limit)}…`;
+}
+
+export function buildCompactEvaluationContext(params: {
+  candidateName: string;
+  candidateRole: string;
+  roomTitle: string;
+  roomBrief: string;
+  evidencePoints: EvidencePoint[];
+  skillScores: SkillMatchScore[];
+}): CompactEvaluationContext {
+  const evidenceSummary = params.evidencePoints.slice(0, 8).map((e) => {
+    const quote = (e.quoteSnippet || '').replace(/\s+/g, ' ').slice(0, 240);
+    return `[${e.id}] ${e.claim} (${e.supportLevel}, ${e.confidence}%): ${quote}`;
+  }).join('\n');
+  return {
+    roleTitle: params.roomTitle,
+    roleBrief: params.roomBrief.slice(0, 600),
+    candidateName: params.candidateName,
+    candidateRole: params.candidateRole,
+    requirements: params.skillScores.slice(0, 7).map((skill) => `${skill.skill}: target ${skill.requiredScore}/100`),
+    evidenceSummary,
+  };
+}
+
 export async function analyzeCandidateWithGemini(
   params: AnalyzeCandidateParams
 ): Promise<{
@@ -76,7 +104,7 @@ export async function analyzeCandidateWithGemini(
   concern: string;
 }> {
   const prompt = `
-You are HireMind AI's rigorous, objective candidate analysis and intelligence system.
+You are Recruitfy's rigorous, objective candidate analysis and intelligence system.
 Analyze the candidate's resume and interview transcript against the hiring room's shared Job Description.
 
 ---
@@ -85,7 +113,7 @@ Role Title: ${params.roomTitle}
 Role Brief: ${params.roomBrief}
 
 ### SHARED JOB DESCRIPTION:
-${params.jobDescriptionText || 'No Job Description text available.'}
+${compactSourceText(params.jobDescriptionText || 'No Job Description text available.')}
 
 ---
 ### CANDIDATE CONTEXT
@@ -93,10 +121,10 @@ Candidate Name: ${params.candidateName}
 Target Role: ${params.candidateRole}
 
 ### CANDIDATE RESUME (${params.resumeFileName || 'Resume.pdf'}):
-${params.resumeText || 'No Resume text available.'}
+${compactSourceText(params.resumeText || 'No Resume text available.')}
 
 ### CANDIDATE INTERVIEW TRANSCRIPT (${params.transcriptFileName || 'Interview.pdf'}):
-${params.transcriptText || 'No Interview Transcript text available.'}
+${compactSourceText(params.transcriptText || 'No Interview Transcript text available.')}
 
 ---
 ### INSTRUCTIONS
@@ -240,6 +268,15 @@ Return ONLY a valid, parseable JSON object matching this schema:
   const recommendation: RecommendationAction =
     parsed.recommendation === 'reject' || parsed.recommendation === 'hold' ? parsed.recommendation : 'advance';
 
+  const evaluationContext = buildCompactEvaluationContext({
+    candidateName: params.candidateName,
+    candidateRole: params.candidateRole,
+    roomTitle: params.roomTitle,
+    roomBrief: params.roomBrief,
+    evidencePoints,
+    skillScores,
+  });
+
   const analysis: CandidateAnalysis = {
     id: `analysis-${params.candidateId}`,
     candidateId: params.candidateId,
@@ -252,6 +289,7 @@ Return ONLY a valid, parseable JSON object matching this schema:
     roleAlignment,
     skillScores,
     evidencePoints,
+    evaluationContext,
     coverageDistribution,
     strengths,
     concerns,

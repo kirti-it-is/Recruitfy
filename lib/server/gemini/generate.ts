@@ -2,18 +2,25 @@ import { GoogleGenAI } from '@google/genai';
 import { env } from '@/lib/env';
 
 const MODELS_TO_TRY = [
-  'gemini-3.6-flash',
-  'gemini-2.5-flash-lite',
-  'gemini-flash-latest',
-  'gemini-3.7-flash',
-  'gemini-2.5-pro',
+  'gemini-3.5-flash-lite',
 ];
 
+function isQuotaError(error: unknown): boolean {
+  const message = describeGeminiError(error);
+  return /429|RESOURCE_EXHAUSTED|quota/i.test(message);
+}
+
+function describeGeminiError(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  const cause = error.cause instanceof Error ? ` Cause: ${error.cause.message}` : '';
+  return `${error.name}: ${error.message}${cause}`;
+}
+
 export async function generateGeminiJson<T>(prompt: string): Promise<T> {
-  const apiKey = env.GEMINI_API_KEY;
+  const apiKey = env.GEMINI_API_KEY.trim();
   if (!apiKey) {
     throw new Error(
-      'GEMINI_API_KEY is not configured in server environment. Please set GEMINI_API_KEY in .env.local.'
+      'Gemini is not configured. Set GEMINI_API_KEY in .env.local (or GOOGLE_GENERATIVE_AI_API_KEY / GOOGLE_API_KEY), then restart the development server.'
     );
   }
 
@@ -37,12 +44,13 @@ export async function generateGeminiJson<T>(prompt: string): Promise<T> {
       }
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
-      console.warn(`Model ${modelName} failed, trying next candidate model...`);
+      console.warn(`Gemini model ${modelName} failed: ${describeGeminiError(err)}`);
+      if (isQuotaError(err)) break;
     }
   }
 
   if (!rawJsonText) {
-    throw new Error(`Gemini API generation failed across all models: ${lastError?.message || 'Empty response'}`);
+    throw new Error(`Gemini API generation failed across all models: ${lastError ? describeGeminiError(lastError) : 'Empty response'}`);
   }
 
   try {

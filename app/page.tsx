@@ -111,6 +111,29 @@ interface ClientCandidateAnalysis {
   concerns: string[]
 }
 
+interface ClientDebateSession {
+  currentRound: number
+  maxRounds: number
+  messages: Array<{ id: string; agentName: string; agentRole: string; tone: string; text: string; referencedEvidenceLabel?: string; isConsensus?: boolean }>
+  revisions: Array<{ id: string; agentName: string; previousScore: number; revisedScore: number; reason: string }>
+  consensus?: { agreementConfidence: number; verdictRecommendation: string; summary: string; caveat?: string; unresolvedDisagreement?: string; participatingAgentsCount: number; evidenceReferencesCount: number }
+}
+
+interface ClientDecision {
+  verdict: 'advance' | 'hold' | 'reject'
+  verdictTitle: string
+  finalScore: number
+  overallConfidence: number
+  agentConsensusSummary: string
+  unresolvedQuestion: string
+  rationale: string
+  strengths: string[]
+  keyEvidence: string[]
+  concerns: string[]
+  recommendedFocusAreas: string[]
+  humanDecision?: 'advance' | 'hold' | 'reject'
+}
+
 function UploadField({
   label,
   hint,
@@ -170,7 +193,7 @@ function Brand() {
         <span />
       </div>
       <span className="text-[17px] font-semibold tracking-[-0.03em] text-[#14213d]">
-        hire<span className="text-[#5266d8]">mind</span>
+        Recruit<span className="text-[#5266d8]">fy</span>
       </span>
     </div>
   )
@@ -942,7 +965,7 @@ function CandidateView({
       {stage === 'agents' && (
         <Agents candidateId={candidate.id} setStage={setStage} />
       )}
-      {stage === 'debate' && <Debate setStage={setStage} />}
+      {stage === 'debate' && <Debate candidateId={candidate.id} setStage={setStage} />}
       {stage === 'final' && (
         <FinalAssessment candidate={candidate} setView={setView} />
       )}
@@ -1074,7 +1097,7 @@ function EvidenceStage({
         <div className="eyebrow">03 · Evidence trail</div>
         <h2>Claims linked to source material</h2>
         <p className="large-copy">
-          HireMind found {analysis?.evidencePoints?.length || 24} evidence points
+          Recruitfy found {analysis?.evidencePoints?.length || 24} evidence points
           across {candidate.name}&apos;s resume and interview transcript.
         </p>
         {evidenceList.map((ev, i) => (
@@ -1648,14 +1671,35 @@ function Agents({
           </div>
         ))}
       </div>
-      <button className="primary-button" onClick={() => setStage('debate')}>
+      <button className="primary-button" disabled={isEvaluating || completedCount < 4} onClick={() => setStage('debate')}>
         Enter debate arena <MessageSquareText size={16} />
       </button>
     </>
   )
 }
 
-function Debate({ setStage }: { setStage: (s: Stage) => void }) {
+function Debate({ candidateId, setStage }: { candidateId: string; setStage: (s: Stage) => void }) {
+  const [debate, setDebate] = useState<ClientDebateSession | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    let mounted = true
+    async function loadDebate() {
+      try {
+        let res = await fetch(`/api/candidates/${candidateId}/debate`)
+        if (res.status === 404) res = await fetch(`/api/candidates/${candidateId}/debate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+        const json = await res.json()
+        if (!mounted) return
+        if (res.ok) setDebate(json.data)
+        else setError(json.error?.message || 'Failed to run debate.')
+      } catch (err) {
+        if (mounted) setError(err instanceof Error ? err.message : 'Failed to run debate.')
+      } finally { if (mounted) setLoading(false) }
+    }
+    loadDebate()
+    return () => { mounted = false }
+  }, [candidateId])
+  const consensus = debate?.consensus
   return (
     <>
       <div className="panel debate-intro">
@@ -1670,66 +1714,26 @@ function Debate({ setStage }: { setStage: (s: Stage) => void }) {
             evidence.
           </p>
         </div>
-        <Pill tone="neutral">Round 3 of 3</Pill>
+        <Pill tone="neutral">{loading ? 'Debating…' : `Round ${debate?.currentRound || 0} of ${debate?.maxRounds || 3}`}</Pill>
       </div>
+      {error && <div className="panel"><strong>Debate error:</strong> {error}</div>}
       <div className="debate-layout">
         <div className="panel transcript">
           <div className="messages">
-            <Message
-              agent="Atlas"
-              tone="indigo"
-              text="Her distributed systems work is the strongest signal in the pool. The 68% latency reduction is technically credible."
-            />
-            <Message
-              agent="Quill"
-              tone="coral"
-              text="Challenge: the claim is supported by one interview example. I would revise technical confidence until we verify scope."
-            />
-            <Message
-              agent="Sage"
-              tone="violet"
-              text="Agree on the challenge. She has influence evidence, not yet people-management evidence."
-            />
-            <Message
-              agent="Atlas"
-              tone="indigo"
-              text="Revised: 84 → 76. The concern is material, but does not outweigh the depth of her systems work."
-            />
-            <div className="message consensus">
-              <div className="consensus-icon">
-                <Check size={17} />
-              </div>
-              <div>
-                <div className="message-meta">
-                  <strong>Unresolved disagreement</strong>
-                  <span>Consensus with caveat</span>
-                </div>
-                <p>
-                  Advance Maya, with a final interview focused on team scaling
-                  and management scope.
-                </p>
-              </div>
-            </div>
+            {debate?.messages.map((message) => message.isConsensus ? <div className="message consensus" key={message.id}><div className="consensus-icon"><Check size={17} /></div><div><div className="message-meta"><strong>Consensus</strong><span>{consensus?.unresolvedDisagreement ? 'Consensus with caveat' : 'Panel consensus'}</span></div><p>{message.text}</p></div></div> : <Message key={message.id} agent={message.agentName} role={message.agentRole} tone={message.tone} text={message.text} evidenceLabel={message.referencedEvidenceLabel} />)}
           </div>
           <div className="debate-footer">
-            <span>4 agents participated</span>
-            <span>6 evidence references</span>
+            <span>{consensus?.participatingAgentsCount || 0} agents participated</span>
+            <span>{consensus?.evidenceReferencesCount || 0} evidence references</span>
           </div>
         </div>
         <div className="panel debate-side">
           <div className="eyebrow">Opinion revisions</div>
-          <div className="revision">
-            <b>Atlas</b>
-            <span>84 → 76</span>
-            <small>Skeptic challenged ML claim evidence</small>
-          </div>
-          <div className="revision">
-            <b>Consensus</b>
-            <span>87% confidence</span>
-            <small>Advance with one open question</small>
-          </div>
+          {debate?.revisions.map((revision) => <div className="revision" key={revision.id}><b>{revision.agentName}</b><span>{revision.previousScore} → {revision.revisedScore}</span><small>{revision.reason}</small></div>)}
+          {consensus && <div className="revision"><b>Consensus</b><span>{consensus.agreementConfidence}% confidence</span><small>{consensus.verdictRecommendation}</small></div>}
           <button
             className="primary-button full"
+            disabled={!debate || loading}
             onClick={() => setStage('final')}
           >
             View final assessment <ArrowRight size={16} />
@@ -1742,12 +1746,16 @@ function Debate({ setStage }: { setStage: (s: Stage) => void }) {
 
 function Message({
   agent,
+  role,
   tone,
   text,
+  evidenceLabel,
 }: {
   agent: string
+  role: string
   tone: string
   text: string
+  evidenceLabel?: string
 }) {
   return (
     <div className="message">
@@ -1757,12 +1765,10 @@ function Message({
       <div>
         <div className="message-meta">
           <strong>{agent}</strong>
-          <span>{agent === 'Quill' ? 'Skeptic' : 'Technical'}</span>
+          <span>{role}</span>
         </div>
         <p>{text}</p>
-        <small className="evidence-ref">
-          Evidence #0{agent === 'Atlas' ? '4' : '7'} referenced
-        </small>
+        {evidenceLabel && <small className="evidence-ref">{evidenceLabel}</small>}
       </div>
     </div>
   )
@@ -1775,29 +1781,57 @@ function FinalAssessment({
   candidate: ClientCandidate
   setView: (v: View) => void
 }) {
+  const [decision, setDecision] = useState<ClientDecision | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    let mounted = true
+    async function loadDecision() {
+      try {
+        let res = await fetch(`/api/candidates/${candidate.id}/decision`)
+        if (res.status === 404) res = await fetch(`/api/candidates/${candidate.id}/decision`, { method: 'POST' })
+        const json = await res.json()
+        if (!mounted) return
+        if (res.ok) setDecision(json.data)
+        else setError(json.error?.message || 'Failed to generate decision.')
+      } catch (err) {
+        if (mounted) setError(err instanceof Error ? err.message : 'Failed to generate decision.')
+      } finally { if (mounted) setLoading(false) }
+    }
+    loadDecision()
+    return () => { mounted = false }
+  }, [candidate.id])
+  const recordHumanDecision = async (humanDecision: ClientDecision['verdict']) => {
+    const res = await fetch(`/api/candidates/${candidate.id}/decision`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ humanDecision }) })
+    const json = await res.json()
+    if (res.ok) setDecision(json.data)
+    else setError(json.error?.message || 'Failed to record human decision.')
+  }
+  const displayed = decision
   return (
     <>
+      {error && <div className="panel"><strong>Decision error:</strong> {error}</div>}
       <div className="panel final-verdict">
         <div className="verdict-top">
           <div>
             <div className="eyebrow">04 · Final candidate assessment</div>
-            <h2>Advance to final interview</h2>
+            <h2>{loading ? 'Generating final assessment…' : displayed?.verdictTitle || 'Final assessment unavailable'}</h2>
             <p>Evidence-weighted verdict after independent review and debate.</p>
           </div>
-          <Score value={candidate.score || 92} size="large" />
+          <Score value={displayed?.finalScore || candidate.score || 0} size="large" />
         </div>
         <div className="final-columns">
           <div>
             <span>Agent consensus</span>
-            <b>3 agree · 1 caveat</b>
+            <b>{displayed?.agentConsensusSummary || '—'}</b>
           </div>
           <div>
             <span>Overall confidence</span>
-            <b>87%</b>
+            <b>{displayed?.overallConfidence ?? 0}%</b>
           </div>
           <div>
             <span>Unresolved</span>
-            <b>Team scaling evidence</b>
+            <b>{displayed?.unresolvedQuestion || '—'}</b>
           </div>
         </div>
       </div>
@@ -1806,31 +1840,25 @@ function FinalAssessment({
           <div className="eyebrow">Evidence-weighted reasoning</div>
           <h2>Why {candidate.name} is a strong fit</h2>
           <p className="large-copy">
-            {candidate.name} combines exceptional systems thinking with execution
-            instincts that turn ambiguous problems into durable platforms. The
-            debate surfaced one meaningful question, but the evidence remains
-            consistently strong across technical depth, collaboration, and
-            delivery.
+            {displayed?.rationale || 'The evidence-weighted recommendation will appear after the debate concludes.'}
           </p>
           <div className="final-list">
             <div>
               <Check size={16} />
               <span>
-                <b>Strengths</b> Distributed systems, evaluation rigor, technical
-                leadership
+                <b>Strengths</b> {displayed?.strengths.join(', ') || '—'}
               </span>
             </div>
             <div>
               <Check size={16} />
               <span>
-                <b>Key evidence</b> 68% latency reduction and cross-team
-                architecture influence
+                <b>Key evidence</b> {displayed?.keyEvidence.join(', ') || '—'}
               </span>
             </div>
             <div className="warn">
               <ShieldCheck size={16} />
               <span>
-                <b>Concern</b> Validate people-management scope in final interview
+                <b>Concern</b> {displayed?.concerns.join(', ') || '—'}
               </span>
             </div>
           </div>
@@ -1838,6 +1866,9 @@ function FinalAssessment({
             <ArrowLeft size={16} />
             Back to hiring room
           </button>
+          <div className="section-actions" style={{ marginTop: 12 }}>
+            {(['advance', 'hold', 'reject'] as const).map((verdict) => <button key={verdict} className="secondary-button" disabled={!displayed} onClick={() => recordHumanDecision(verdict)}>{displayed?.humanDecision === verdict ? `Selected: ${verdict}` : verdict}</button>)}
+          </div>
         </div>
         <div className="panel">
           <div className="eyebrow">Next decision</div>
@@ -2071,12 +2102,14 @@ function Create({
   )
   const [jdFile, setJdFile] = useState<File | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     if (!title.trim() || !location.trim() || !brief.trim() || isSubmitting) return
 
     setIsSubmitting(true)
+    setSubmitError(null)
     try {
       const formData = new FormData()
       formData.append('title', title.trim())
@@ -2091,15 +2124,20 @@ function Create({
         body: formData,
       })
 
-      if (res.ok) {
-        const json = await res.json()
-        if (json.data) {
-          onRoomCreated(json.data)
-          setView('room')
-        }
+      const json = await res.json().catch(() => null)
+      if (!res.ok) {
+        setSubmitError(json?.error?.message || 'Unable to create the hiring room. Please try again.')
+        return
       }
+      if (!json?.data) {
+        setSubmitError('The hiring room was created without a response. Please refresh and try again.')
+        return
+      }
+      onRoomCreated(json.data)
+      setView('room')
     } catch (err) {
       console.error('Failed to create hiring room:', err)
+      setSubmitError(err instanceof Error ? err.message : 'Network error while creating the hiring room.')
     } finally {
       setIsSubmitting(false)
     }
@@ -2115,7 +2153,7 @@ function Create({
         <form onSubmit={handleSubmit}>
           <div className="eyebrow">New workspace</div>
           <h1>Create a hiring room</h1>
-          <p>Define the role. HireMind will structure the signal.</p>
+          <p>Define the role. Recruitfy will structure the signal.</p>
           <div className="form-grid">
             <label>
               Role title
@@ -2148,6 +2186,7 @@ function Create({
             selectedFileName={jdFile?.name}
             onChange={setJdFile}
           />
+          {submitError && <div className="document-note" role="alert">{submitError}</div>}
           <div className="create-footer">
             <span>
               <ShieldCheck size={15} />
@@ -2178,7 +2217,7 @@ function Login({ setView }: { setView: (v: View) => void }) {
             <Sparkles size={21} />
             <h2>Make the signal clear.</h2>
             <p>
-              HireMind brings independent AI perspectives into one transparent
+              Recruitfy brings independent AI perspectives into one transparent
               hiring workflow.
             </p>
           </div>

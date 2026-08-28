@@ -3,7 +3,7 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'HireMind — Hiring intelligence, made clear',
+  title: 'Recruitfy — Hiring intelligence, made clear',
   description: 'A transparent AI hiring intelligence workspace for better decisions.',
   generator: 'v0.app',
 }

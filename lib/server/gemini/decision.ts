@@ -1,0 +1,14 @@
+import { generateGeminiJson } from '@/lib/server/gemini/generate';
+import { CandidateDecision, DebateSession, EvidencePoint } from '@/lib/types';
+
+interface DecisionOutput { verdict: 'advance' | 'hold' | 'reject'; verdictTitle: string; finalScore: number; overallConfidence: number; agentConsensusSummary: string; unresolvedQuestion: string; rationale: string; strengths: string[]; keyEvidence: string[]; concerns: string[]; recommendedFocusAreas: string[]; }
+
+export async function generateCandidateDecision(params: { candidateId: string; roomId: string; candidateName: string; debate: DebateSession; evidencePoints: EvidencePoint[] }): Promise<CandidateDecision> {
+  const debateSummary = { consensus: params.debate.consensus, revisions: params.debate.revisions.map((r) => ({ agent: r.agentName, from: r.previousScore, to: r.revisedScore, reason: r.reason.slice(0, 300) })), messages: params.debate.messages.slice(-6).map((m) => ({ agent: m.agentName, text: m.text.slice(0, 400), evidenceId: m.referencedEvidenceId })) };
+  const evidence = params.evidencePoints.slice(0, 8).map((e) => ({ id: e.id, claim: e.claim.slice(0, 180), quote: (e.quoteSnippet || '').replace(/\s+/g, ' ').slice(0, 240), support: e.supportLevel, confidence: e.confidence }));
+  const prompt = `Create the final evidence-weighted hiring recommendation for ${params.candidateName}. Base it strictly on the concluded debate and compact evidence below; do not add facts.\nDEBATE: ${JSON.stringify(debateSummary)}\nEVIDENCE: ${JSON.stringify(evidence)}\nReturn JSON only: {"verdict":"advance|hold|reject","verdictTitle":string,"finalScore":number,"overallConfidence":number,"agentConsensusSummary":string,"unresolvedQuestion":string,"rationale":string,"strengths":string[],"keyEvidence":string[],"concerns":string[],"recommendedFocusAreas":string[]}.`;
+  const out = await generateGeminiJson<DecisionOutput>(prompt);
+  const clamp = (v: unknown) => Math.max(0, Math.min(100, Math.round(Number(v) || 0)));
+  const list = (v: unknown) => Array.isArray(v) ? v.map(String).filter(Boolean).slice(0, 5) : [];
+  return { id: `decision-${params.candidateId}-${Date.now()}`, candidateId: params.candidateId, roomId: params.roomId, verdict: ['advance', 'hold', 'reject'].includes(out.verdict) ? out.verdict : 'hold', verdictTitle: String(out.verdictTitle || 'Human review recommended'), finalScore: clamp(out.finalScore), overallConfidence: clamp(out.overallConfidence), agentConsensusSummary: String(out.agentConsensusSummary || ''), unresolvedQuestion: String(out.unresolvedQuestion || params.debate.consensus?.unresolvedDisagreement || 'None'), rationale: String(out.rationale || params.debate.consensus?.summary || ''), strengths: list(out.strengths), keyEvidence: list(out.keyEvidence), concerns: list(out.concerns), recommendedFocusAreas: list(out.recommendedFocusAreas), decidedAt: new Date().toISOString() };
+}

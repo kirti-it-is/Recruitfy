@@ -40,6 +40,15 @@ export interface CoverageDistribution {
   supportedPercentage: number;
 }
 
+export interface CompactEvaluationContext {
+  roleTitle: string;
+  roleBrief: string;
+  candidateName: string;
+  candidateRole: string;
+  evidenceSummary: string;
+  requirements: string[];
+}
+
 export interface CandidateAnalysis {
   id: string;
   candidateId: string;
@@ -52,6 +61,7 @@ export interface CandidateAnalysis {
   roleAlignment: RoleAlignment;
   skillScores: SkillMatchScore[];
   evidencePoints: EvidencePoint[];
+  evaluationContext?: CompactEvaluationContext;
   coverageDistribution: CoverageDistribution;
   strengths: string[];
   concerns: string[];

@@ -3,6 +3,20 @@ import { db } from '@/lib/server/mock-db';
 import { fileStorage } from '@/lib/server/storage/file-storage';
 import { ApiResponse, CreateRoomInput, HiringRoom } from '@/lib/types';
 
+export const runtime = 'nodejs';
+
+function getFormText(formData: FormData, key: string): string {
+  const value = formData.get(key);
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function getUploadedFile(formData: FormData, key: string): File | null {
+  const value = formData.get(key);
+  return value && typeof value !== 'string' && typeof value.arrayBuffer === 'function' && typeof value.size === 'number'
+    ? value as File
+    : null;
+}
+
 export async function GET() {
   try {
     const rooms = await db.getRooms();
@@ -36,12 +50,12 @@ export async function POST(req: NextRequest) {
 
     if (contentType.includes('multipart/form-data')) {
       const formData = await req.formData();
-      const title = (formData.get('title') as string) || '';
-      const role = (formData.get('role') as string) || title;
-      const location = (formData.get('location') as string) || '';
-      const department = (formData.get('department') as string) || 'Engineering';
-      const brief = (formData.get('brief') as string) || '';
-      const jdFile = formData.get('jobDescription') as File | null;
+      const title = getFormText(formData, 'title');
+      const role = getFormText(formData, 'role') || title;
+      const location = getFormText(formData, 'location');
+      const department = getFormText(formData, 'department') || 'Engineering';
+      const brief = getFormText(formData, 'brief');
+      const jdFile = getUploadedFile(formData, 'jobDescription');
 
       if (!title || !location || !brief) {
         const response: ApiResponse = {

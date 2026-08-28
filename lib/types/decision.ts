@@ -15,6 +15,7 @@ export interface CandidateDecision {
   keyEvidence: string[];
   concerns: string[];
   recommendedFocusAreas: string[];
+  humanDecision?: DecisionVerdict;
   decidedAt: string;
 }
 

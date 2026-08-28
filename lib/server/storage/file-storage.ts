@@ -50,8 +50,8 @@ export class FileStorageService {
     options?: { filename?: string; candidateId?: string; roomId?: string }
   ): Promise<SavedFileInfo> {
     const fileId = `doc-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-    const originalFilename =
-      options?.filename || (file instanceof File ? file.name : `${fileId}.pdf`);
+    const fileName = 'name' in file && typeof file.name === 'string' ? file.name : undefined;
+    const originalFilename = options?.filename || fileName || `${fileId}.pdf`;
 
     // Clean filename for safety
     const ext = path.extname(originalFilename) || '.pdf';
@@ -73,7 +73,7 @@ export class FileStorageService {
     await fs.promises.writeFile(fullPath, buffer);
 
     const sizeBytes = buffer.length;
-    const mimeType = (file instanceof File && file.type) ? file.type : 'application/pdf';
+    const mimeType = file.type || 'application/pdf';
 
     const metadata: DocumentMetadata = {
       originalFilename,
